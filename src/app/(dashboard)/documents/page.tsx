@@ -1,11 +1,12 @@
 "use client"
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import {
   Plus,
   FileText,
   FolderPlus,
   AlertCircle,
   RefreshCw,
+  Upload,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -39,6 +40,7 @@ export default function DocumentsPage() {
   const [newDocDialog, setNewDocDialog] = useState(false)
   const [newDocTitle, setNewDocTitle] = useState("")
   const [creating, setCreating] = useState(false)
+  const importRef = useRef<HTMLInputElement>(null)
 
   const fetchData = useCallback(async () => {
     if (!organization) return
@@ -109,6 +111,89 @@ export default function DocumentsPage() {
     }
   }
 
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !organization || !profile) return
+
+    const ext = file.name.split(".").pop()?.toLowerCase()
+    const baseName = file.name.replace(/\.[^/.]+$/, "")
+
+    try {
+      const text = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = () => reject(new Error("Failed to read file"))
+        reader.readAsText(file)
+      })
+
+      let content: any
+
+      if (ext === "txt" || ext === "md") {
+        const paragraphs = text.split(/\n/).map((line) => ({
+          type: "paragraph" as const,
+          content: line ? [{ type: "text" as const, text: line }] : undefined,
+        }))
+        content = { type: "doc", content: paragraphs }
+      } else if (ext === "csv") {
+        content = {
+          type: "doc",
+          content: [
+            {
+              type: "codeBlock",
+              attrs: { language: "csv" },
+              content: [{ type: "text", text }],
+            },
+          ],
+        }
+      } else if (ext === "json") {
+        content = {
+          type: "doc",
+          content: [
+            {
+              type: "codeBlock",
+              attrs: { language: "json" },
+              content: [{ type: "text", text }],
+            },
+          ],
+        }
+      } else if (ext === "html") {
+        const lines = text.split(/\n/)
+        const paragraphs = lines.map((line) => ({
+          type: "paragraph" as const,
+          content: line ? [{ type: "text" as const, text: line }] : undefined,
+        }))
+        content = { type: "doc", content: paragraphs }
+      } else {
+        toast.error("Unsupported file type")
+        return
+      }
+
+      const { data, error } = await supabase
+        .from("documents")
+        .insert({
+          organization_id: organization.id,
+          title: baseName,
+          content,
+          folder_id: selectedFolder,
+          created_by: profile.id,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+
+      toast.success(`Imported "${file.name}" successfully`)
+      if (data) router.push(`/documents/${data.id}`)
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to import file"
+      toast.error(message)
+    } finally {
+      // Reset file input so the same file can be re-imported
+      if (importRef.current) importRef.current.value = ""
+    }
+  }
+
   const filteredDocs = selectedFolder
     ? documents.filter((d) => d.folder_id === selectedFolder)
     : documents
@@ -160,6 +245,18 @@ export default function DocumentsPage() {
             Create and organize team documents
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <input
+            ref={importRef}
+            type="file"
+            accept=".txt,.md,.csv,.json,.html"
+            className="hidden"
+            onChange={handleImport}
+          />
+          <Button variant="outline" onClick={() => importRef.current?.click()}>
+            <Upload className="mr-2 h-4 w-4" />
+            Import
+          </Button>
         <Dialog open={newDocDialog} onOpenChange={setNewDocDialog}>
           <DialogTrigger asChild>
             <Button>
@@ -198,6 +295,7 @@ export default function DocumentsPage() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Main content */}

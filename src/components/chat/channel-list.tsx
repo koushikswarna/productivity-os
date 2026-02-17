@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
-import { Plus, Hash, Lock, User, MessageCircle, Users, Search, UserPlus } from "lucide-react"
+import { Plus, Hash, Lock, User, MessageCircle, Users, Search, UserPlus, StickyNote } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
@@ -129,6 +129,36 @@ export function ChannelList() {
       toast.error(err.message || "Failed to start conversation")
     }
     setLoadingDM(null)
+  }
+
+  const startSelfChat = async () => {
+    if (!organization || !profile) return
+    // Check if self-chat channel already exists
+    const selfChannel = channels.find(
+      (ch) => ch.type === "direct" && ch.name === `self-notes-${profile.id.slice(0, 8)}`
+    )
+    if (selfChannel) {
+      router.push(`/chat/${selfChannel.id}`)
+      return
+    }
+    try {
+      const { data: newChannel, error } = await supabase.from("channels").insert({
+        organization_id: organization.id,
+        name: `self-notes-${profile.id.slice(0, 8)}`,
+        description: "Notes to Self",
+        type: "direct",
+        created_by: profile.id,
+      }).select().single()
+      if (error) throw error
+      if (newChannel) {
+        await supabase.from("channel_members").insert({ channel_id: newChannel.id, user_id: profile.id })
+        setChannels((prev) => [...prev, newChannel])
+        router.push(`/chat/${newChannel.id}`)
+        toast.success("Notes to Self created")
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create self-chat")
+    }
   }
 
   // Separate channels and DMs
@@ -268,6 +298,15 @@ export function ChannelList() {
               </DialogContent>
             </Dialog>
           </div>
+
+          {/* Notes to Self */}
+          <button
+            onClick={startSelfChat}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-muted transition-colors"
+          >
+            <StickyNote className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="truncate flex-1 text-left">Notes to Self</span>
+          </button>
 
           <div className="space-y-0.5">
             {dmChannels.length === 0 ? (

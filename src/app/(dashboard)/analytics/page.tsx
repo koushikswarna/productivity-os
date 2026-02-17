@@ -1,11 +1,13 @@
 "use client"
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import {
   Plus,
   Sparkles,
   TrendingUp,
   AlertCircle,
   RefreshCw,
+  Upload,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,6 +17,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useSupabase } from "@/lib/hooks/use-supabase"
 import { useOrg } from "@/lib/hooks/use-org"
@@ -36,6 +39,34 @@ export default function AnalyticsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedKPI, setSelectedKPI] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
+  const [importedData, setImportedData] = useState<{ headers: string[]; rows: string[][] } | null>(null)
+  const importRef = useRef<HTMLInputElement>(null)
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const text = await file.text()
+
+    if (file.name.endsWith(".csv")) {
+      const lines = text.split("\n").filter(l => l.trim())
+      const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""))
+      const rows = lines.slice(1).map(line => line.split(",").map(c => c.trim().replace(/^"|"$/g, "")))
+      setImportedData({ headers, rows })
+      toast.success(`Imported ${rows.length} rows from ${file.name}`)
+    } else if (file.name.endsWith(".json")) {
+      try {
+        const json = JSON.parse(text)
+        const arr = Array.isArray(json) ? json : [json]
+        const headers = Object.keys(arr[0] || {})
+        const rows = arr.map(item => headers.map(h => String(item[h] ?? "")))
+        setImportedData({ headers, rows })
+        toast.success(`Imported ${rows.length} records from ${file.name}`)
+      } catch {
+        toast.error("Invalid JSON file")
+      }
+    }
+    if (importRef.current) importRef.current.value = ""
+  }
 
   const fetchData = useCallback(async () => {
     if (!organization) return
@@ -182,6 +213,11 @@ export default function AnalyticsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <input type="file" ref={importRef} className="hidden" accept=".csv,.json" onChange={handleImport} />
+          <Button variant="outline" onClick={() => importRef.current?.click()}>
+            <Upload className="mr-2 h-4 w-4" />
+            Import
+          </Button>
           <Button
             variant="outline"
             onClick={generateInsights}
@@ -245,6 +281,45 @@ export default function AnalyticsPage() {
             <TrendChart kpi={kpis.find((k) => k.id === selectedKPI)!} />
           )}
         </>
+      )}
+
+      {/* Imported data table */}
+      {importedData && (
+        <Card>
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Imported Data</CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => setImportedData(null)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    {importedData.headers.map((h, i) => (
+                      <th key={i} className="text-left p-2 font-medium text-muted-foreground">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {importedData.rows.slice(0, 10).map((row, ri) => (
+                    <tr key={ri} className="border-b last:border-0">
+                      {row.map((cell, ci) => (
+                        <td key={ci} className="p-2">{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {importedData.rows.length > 10 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Showing 10 of {importedData.rows.length} rows
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Insights panel */}

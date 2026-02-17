@@ -1,4 +1,5 @@
 "use client"
+import { useEffect, useRef } from "react"
 import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
@@ -13,7 +14,10 @@ import { cn } from "@/lib/utils"
 interface EditorProps { content: any; onChange: (content: any) => void }
 
 export function Editor({ content, onChange }: EditorProps) {
+  const isExternalUpdate = useRef(false)
+
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       Placeholder.configure({ placeholder: "Start writing..." }),
@@ -22,9 +26,26 @@ export function Editor({ content, onChange }: EditorProps) {
       Image,
     ],
     content,
-    onUpdate: ({ editor }) => onChange(editor.getJSON()),
+    onUpdate: ({ editor }) => {
+      if (!isExternalUpdate.current) {
+        onChange(editor.getJSON())
+      }
+    },
     editorProps: { attributes: { class: "prose prose-sm dark:prose-invert max-w-none p-4 focus:outline-none min-h-[500px]" } },
   })
+
+  // Sync editor content when the content prop changes externally (import, version restore)
+  useEffect(() => {
+    if (editor && content && !editor.isDestroyed) {
+      const currentJSON = JSON.stringify(editor.getJSON())
+      const newJSON = JSON.stringify(content)
+      if (currentJSON !== newJSON) {
+        isExternalUpdate.current = true
+        editor.commands.setContent(content)
+        isExternalUpdate.current = false
+      }
+    }
+  }, [editor, content])
 
   if (!editor) return null
 
